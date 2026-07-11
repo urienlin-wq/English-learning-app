@@ -5,9 +5,12 @@ workflows:
     environment:
       flutter: stable
     scripts:
+      - name: Generate missing platform files
+        script: flutter create --platforms=android .
       - name: Get Flutter packages
         script: flutter pub get
       - name: Build APK
         script: flutter build apk --release
     artifacts:
       - build/**/outputs/**/*.apk
+  
