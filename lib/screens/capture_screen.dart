@@ -28,7 +28,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
     'genuine', 'hesitate', 'illustrate', 'jeopardy', 'knowledge', 'legitimate',
   ];
 
-  List<_ParsedWord> _parsedWords = [];
+  List<ParsedWord> _parsedWords = [];
 
   Future<void> _takePhoto() async {
     final picked = await _picker.pickImage(source: ImageSource.camera, imageQuality: 90);
@@ -57,15 +57,14 @@ class _CaptureScreenState extends State<CaptureScreen> {
   Future<void> _processImage(File img) async {
     final english = await _ocr.recognizeEnglish(img);
     final chinese = await _ocr.recognizeChinese(img);
-    _rawText = 'EN: $english
-CN: $chinese';
+    _rawText = 'EN: ' + english + ' CN: ' + chinese;
 
     final enLines = english.split('
 ').where((l) => l.trim().isNotEmpty).toList();
     final cnLines = chinese.split('
 ').where((l) => l.trim().isNotEmpty).toList();
 
-    final List<_ParsedWord> results = [];
+    final List<ParsedWord> results = [];
     final int n = enLines.length > cnLines.length ? enLines.length : cnLines.length;
     for (int i = 0; i < n; i++) {
       String en = i < enLines.length ? enLines[i].trim() : '';
@@ -81,14 +80,16 @@ CN: $chinese';
       }
 
       final pos = await _dict.lookupPartsOfSpeech(en);
-      results.add(_ParsedWord(
+      results.add(ParsedWord(
         english: en,
         chinese: cn,
         partOfSpeech: pos.isNotEmpty ? pos.first : 'unknown',
         corrected: corrected,
       ));
     }
-    setState(() => _parsedWords = results);
+    setState(() {
+      _parsedWords = results;
+    });
   }
 
   Future<void> _saveAll() async {
@@ -103,7 +104,7 @@ CN: $chinese';
     }
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已保存 ${_parsedWords.length} 个单词')),
+        SnackBar(content: Text('已保存单词')),
       );
       Navigator.pop(context);
     }
@@ -146,13 +147,25 @@ CN: $chinese';
             if (_loading) const CircularProgressIndicator(),
             if (_image != null && !_loading)
               Expanded(
-                child: ListView(
-                  children: [
-                    Image.file(_image!, height: 200),
-                    const SizedBox(height: 12),
-                    ..._parsedWords.map((w) => Card(
-                          child: ListTile(
-                            title: Text('${w.english}  [${w.partOfSpeech}]'),
-                            subtitle: Text(w.chinese),
-                            trailing: w.corrected
-                                ? const Icon(Icons.auto_fix_high, color: Colo
+                child: buildResultList(),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget buildResultList() {
+    final List<Widget> items = [];
+    items.add(Image.file(_image!, height: 200));
+    items.add(const SizedBox(height: 12));
+    for (final w in _parsedWords) {
+      items.add(buildWordCard(w));
+    }
+    items.add(const SizedBox(height: 12));
+    if (_parsedWords.isNotEmpty) {
+      items.add(
+        ElevatedButton(
+          onPressed: _saveAll,
+          child: const Text('确认并保存到词库'),
+
