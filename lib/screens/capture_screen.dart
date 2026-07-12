@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/word_entry.dart';
@@ -20,7 +21,6 @@ class _CaptureScreenState extends State<CaptureScreen> {
   final DBService _db = DBService();
 
   File? _image;
-  String _rawText = '';
   bool _loading = false;
 
   final List<String> _localWordBank = [
@@ -29,6 +29,18 @@ class _CaptureScreenState extends State<CaptureScreen> {
   ];
 
   List<ParsedWord> _parsedWords = [];
+
+  List<String> splitLines(String text) {
+    final splitter = LineSplitter();
+    final lines = splitter.convert(text);
+    final result = <String>[];
+    for (final l in lines) {
+      if (l.trim().isNotEmpty) {
+        result.add(l.trim());
+      }
+    }
+    return result;
+  }
 
   Future<void> _takePhoto() async {
     final picked = await _picker.pickImage(source: ImageSource.camera, imageQuality: 90);
@@ -39,7 +51,9 @@ class _CaptureScreenState extends State<CaptureScreen> {
       _parsedWords = [];
     });
     await _processImage(_image!);
-    setState(() => _loading = false);
+    setState(() {
+      _loading = false;
+    });
   }
 
   Future<void> _pickFromGallery() async {
@@ -51,27 +65,37 @@ class _CaptureScreenState extends State<CaptureScreen> {
       _parsedWords = [];
     });
     await _processImage(_image!);
-    setState(() => _loading = false);
+    setState(() {
+      _loading = false;
+    });
   }
 
   Future<void> _processImage(File img) async {
     final english = await _ocr.recognizeEnglish(img);
     final chinese = await _ocr.recognizeChinese(img);
-    _rawText = 'EN: ' + english + ' CN: ' + chinese;
 
-    final enLines = english.split('
-').where((l) => l.trim().isNotEmpty).toList();
-    final cnLines = chinese.split('
-').where((l) => l.trim().isNotEmpty).toList();
+    final enLines = splitLines(english);
+    final cnLines = splitLines(chinese);
 
     final List<ParsedWord> results = [];
-    final int n = enLines.length > cnLines.length ? enLines.length : cnLines.length;
+    int n = enLines.length;
+    if (cnLines.length > n) {
+      n = cnLines.length;
+    }
+
     for (int i = 0; i < n; i++) {
-      String en = i < enLines.length ? enLines[i].trim() : '';
-      String cn = i < cnLines.length ? cnLines[i].trim() : '';
+      String en = '';
+      String cn = '';
+      if (i < enLines.length) {
+        en = enLines[i];
+      }
+      if (i < cnLines.length) {
+        cn = cnLines[i];
+      }
 
       bool corrected = false;
-      if (en.replaceAll(RegExp(r'[^a-zA-Z]'), '').length < 2) {
+      final onlyLetters = en.replaceAll(RegExp('[^a-zA-Z]'), '');
+      if (onlyLetters.length < 2) {
         final match = _dict.findClosestMatch(en, _localWordBank);
         if (match != null) {
           en = match;
@@ -80,18 +104,23 @@ class _CaptureScreenState extends State<CaptureScreen> {
       }
 
       final pos = await _dict.lookupPartsOfSpeech(en);
+      String firstPos = 'unknown';
+      if (pos.isNotEmpty) {
+        firstPos = pos.first;
+      }
+
       results.add(ParsedWord(
         english: en,
         chinese: cn,
-        partOfSpeech: pos.isNotEmpty ? pos.first : 'unknown',
+        partOfSpeech: firstPos,
         corrected: corrected,
       ));
     }
+
     setState(() {
       _parsedWords = results;
     });
   }
-
   Future<void> _saveAll() async {
     for (final w in _parsedWords) {
       if (w.english.isEmpty || w.chinese.isEmpty) continue;
@@ -145,10 +174,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
             ),
             const SizedBox(height: 16),
             if (_loading) const CircularProgressIndicator(),
-            if (_image != null && !_loading)
-              Expanded(
-                child: buildResultList(),
-              ),
+            if (_image != null && !_loading) Expanded(child: buildResultList()),
           ],
         ),
       ),
@@ -168,4 +194,33 @@ class _CaptureScreenState extends State<CaptureScreen> {
         ElevatedButton(
           onPressed: _saveAll,
           child: const Text('确认并保存到词库'),
+        ),
+      );
+    }
+    return ListView(children: items);
+  }
 
+  Widget buildWordCard(ParsedWord w) {
+    final title = w.english + '  [' + w.partOfSpeech + ']';
+    return Card(
+      child: ListTile(
+        title: Text(title),
+        subtitle: Text(w.chinese),
+        trailing: w.corrected ? const Icon(Icons.auto_fix_high, color: Colors.orange) : null,
+      ),
+    );
+  }
+}
+
+class ParsedWord {
+  String english;
+  String chinese;
+  String partOfSpeech;
+  bool corrected;
+  ParsedWord({
+    required this.english,
+    required this.chinese,
+    required this.partOfSpeech,
+    required this.corrected,
+  });
+}  
